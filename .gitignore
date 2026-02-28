@@ -1,0 +1,26 @@
+# Build artifacts
+chdhash
+chdhash.exe
+test_cdfs
+
+# CMake
+build/
+_deps/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CMakeLists.txt.user
+
+# Object files
+*.o
+*.a
+
+# Test files
+test.chd
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

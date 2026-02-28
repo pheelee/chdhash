@@ -1,0 +1,113 @@
+name: Cross-compile CHD Hash
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: amd64
+            ext: .exe
+            cc: gcc
+          - os: ubuntu-latest
+            arch: amd64
+            ext: ""
+            cc: gcc
+          - os: ubuntu-latest
+            arch: aarch64
+            ext: ""
+            cc: aarch64-linux-gnu-gcc
+            CMAKE_OPTS: "-DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc"
+          - os: ubuntu-latest
+            arch: armv7
+            ext: ""
+            cc: arm-linux-gnueabihf-gcc
+            CMAKE_OPTS: "-DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cross-compilation toolchains
+        if: matrix.arch == 'aarch64' || matrix.arch == 'armv7'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+
+      - name: Create build directory
+        run: mkdir -p build
+
+      - name: Configure with CMake
+        working-directory: build
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.CMAKE_OPTS }}
+
+      - name: Build
+        working-directory: build
+        run: cmake --build . --config Release -j$(nproc)
+
+      - name: Rename binary
+        run: |
+          OS_NAME="${{ matrix.os }}"
+          if [ "$OS_NAME" = "ubuntu-latest" ]; then
+            OS_NAME="linux"
+          elif [ "$OS_NAME" = "windows-latest" ]; then
+            OS_NAME="windows"
+          fi
+          BINARY_NAME="chdhash-${OS_NAME}-${{ matrix.arch }}${{ matrix.ext }}"
+          if [ -f "build/chdhash${{ matrix.ext }}" ]; then
+            cp "build/chdhash${{ matrix.ext }}" "$BINARY_NAME"
+          elif [ -f "build/chdhash" ]; then
+            cp "build/chdhash" "$BINARY_NAME"
+          fi
+          echo "BINARY_NAME=$BINARY_NAME" >> $GITHUB_ENV
+
+      - name: Create artifact directory
+        run: mkdir -p artifacts
+
+      - name: Move binary to artifacts
+        run: |
+          mkdir -p artifacts
+          mv "${{ env.BINARY_NAME }}" "artifacts/"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chdhash-${{ matrix.os }}-${{ matrix.arch }}
+          path: artifacts/
+          retention-days: 30
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/chdhash-*/chdhash*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
